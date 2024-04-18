@@ -1,0 +1,45 @@
+import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.io.TextIO;
+import org.apache.beam.sdk.io.jdbc.JdbcIO;
+import org.apache.beam.sdk.options.PipelineOptions;
+import org.apache.beam.sdk.options.PipelineOptionsFactory;
+import org.apache.beam.sdk.transforms.DoFn;
+import org.apache.beam.sdk.transforms.ParDo;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+
+public class DatabaseLookup {
+    private static final Logger LOG = LoggerFactory.getLogger(DatabaseLookup.class);
+
+    public static void main(String[] args) {
+        PipelineOptions options = PipelineOptionsFactory.fromArgs(args).create();
+        Pipeline pipeline = Pipeline.create(options);
+
+        pipeline
+            .apply("ReadFromText", TextIO.read().from("input.txt"))
+            .apply("LookupInDatabase", JdbcIO.<String, Void>read()
+                .withDataSourceConfiguration(JdbcIO.DataSourceConfiguration
+                    .create("com.mysql.jdbc.Driver", "jdbc:mysql://localhost:3306/your_database")
+                    .withUsername("your_username")
+                    .withPassword("your_password"))
+                .withQuery("SELECT * FROM your_table WHERE document = ?")
+                .withParameterSetter((element, statement) -> statement.setString(1, element))
+                .withRowMapper((ResultSet resultSet) -> {
+                    if (resultSet.next()) {
+                        String value = resultSet.getString("value");
+                        LOG.info("Found record in the database for document {}: {}", resultSet.getString("document"), value);
+                        // Process the record further if needed
+                    } else {
+                        LOG.warn("Record not found in the database for document: {}", element);
+                        // Here you can take additional actions like writing to another PCollection for logging or error handling
+                    }
+                    return null;
+                }));
+
+        pipeline.run();
+    }
+}
