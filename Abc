@@ -1,0 +1,84 @@
+import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.io.jdbc.JdbcIO;
+import org.apache.beam.sdk.options.PipelineOptionsFactory;
+import org.apache.beam.sdk.transforms.DoFn;
+import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.Row;
+import java.sql.PreparedStatement;
+
+public class JdbcIOReadExample {
+
+    public static void main(String[] args) {
+        // Create Pipeline options
+        PipelineOptionsFactory.register(MyOptions.class);
+        MyOptions options = PipelineOptionsFactory.fromArgs(args).as(MyOptions.class);
+        Pipeline pipeline = Pipeline.create(options);
+
+        // Sample input data (replace with your own source)
+        PCollection<MyData> inputData = ... // Input PCollection of your data
+
+        // Reading data from JDBC
+        PCollection<Row> jdbcData = inputData.apply("ProcessData", ParDo.of(new DoFn<MyData, String>() {
+            @ProcessElement
+            public void processElement(ProcessContext c) {
+                // Access the input data
+                MyData data = c.element();
+                
+                // Construct the prepared statement dynamically using values from the input data
+                String query = "SELECT * FROM your_table_name WHERE your_column_name = ?";
+                
+                // Emit the constructed prepared statement
+                c.output(query);
+            }
+        })).apply(JdbcIO.<String>read()
+            .withDataSourceConfiguration(JdbcIO.DataSourceConfiguration.create(
+                options.getJdbcDriverClassName(),
+                options.getJdbcUrl())
+                .withUsername(options.getJdbcUsername())
+                .withPassword(options.getJdbcPassword()))
+            .withQuery()
+            .withCoder(...)) // Provide a suitable coder for your Row class
+            .withPreparedStatementSetter(new JdbcIO.PreparedStatementSetter<String>() {
+                @Override
+                public void setParameters(String element, PreparedStatement statement) throws Exception {
+                    // Access the input value and set it as a parameter for the prepared statement
+                    MyData data = ... // Get the appropriate MyData instance from the input data
+                    statement.setString(1, data.getValue());
+                }
+            }));
+
+        // Process the JDBC data further
+        jdbcData.apply(...); // Apply transformations or further processing
+
+        // Run the pipeline
+        pipeline.run();
+    }
+
+    // Define your data class
+    static class MyData {
+        // Define your data structure
+    }
+
+    // Define PipelineOptions
+    public interface MyOptions extends PipelineOptions {
+        @Description("JDBC driver class name")
+        @Validation.Required
+        String getJdbcDriverClassName();
+        void setJdbcDriverClassName(String value);
+
+        @Description("JDBC connection URL")
+        @Validation.Required
+        String getJdbcUrl();
+        void setJdbcUrl(String value);
+
+        @Description("JDBC username")
+        @Validation.Required
+        String getJdbcUsername();
+        void setJdbcUsername(String value);
+
+        @Description("JDBC password")
+        @Validation.Required
+        String getJdbcPassword();
+        void setJdbcPassword(String value);
+    }
+}
